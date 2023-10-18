@@ -1,3 +1,5 @@
+The code in `src/share/XML-Schema-learner` orignates from https://github.com/kore/XML-Schema-learner
+
 # List of Claims
 1. Section 6.2 claims that Prolex is able to solve 80% of tasks within the two minute time limit. Additionally, Figure 14a shows the breakdown of time required for tasks across the different environments. This is shown in Step 2 of the evaluation instructions
 2. Section 6.2 claims that even for the most complex tasks (by AST size),  68% of them are still able to be completed. This is also further broken down in Figure 14b. This is evaluated in Step 3 of the evaluation instructions.

@@ -1,0 +1,196 @@
+#!/usr/bin/php
+<?php
+/**
+ * Schema learning
+ *
+ * This file is part of XML-Schema-learner.
+ *
+ * XML-Schema-learner is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; version 3 of the
+ * License.
+ *
+ * XML-Schema-learner is distributed in the hope that it will be
+ * useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+ * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with XML-Schema-learner; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA
+ *
+ * @package Core
+ * @version $Revision: 1236 $
+ * @license http://www.gnu.org/licenses/gpl-3.0.txt GPL
+ */
+
+require __DIR__ . '/src/environment.php';
+
+// Handle provided options
+$defaults = array(
+    'help'       => null,
+    'type'       => 'dtd',
+    'locality'   => false,
+    'attrComp'   => 'strict',
+    'ptrnComp'   => null,
+    'snAttrComp' => null,
+    'snPtrnComp' => null,
+);
+
+$mapping = array(
+    'h' => 'help',
+    't' => 'type',
+    'l' => 'locality',
+    'a' => 'attrComp',
+    'p' => 'ptrnComp',
+);
+
+$options = getopt(
+    'ht:l:a:p:',
+    array(
+        'help',
+        'type:',
+        'locality:',
+        'attrComp:',
+        'ptrnComp:',
+        'snAttrComp:',
+        'snPtrnComp:',
+    )
+);
+
+// Merge options
+foreach ( $mapping as $short => $long )
+{
+    if ( isset( $options[$short] ) &&
+         !isset( $options[$long] ) )
+    {
+        $options[$long] = $options[$short];
+        unset( $options[$short] );
+    }
+}
+$options += $defaults;
+
+// Show help output, if requested
+if ( ( $options['help'] !== null ) ||
+     ( count( $argv ) <= 1 ) )
+{
+    echo <<<EOHELP
+Schema Learner
+by Kore Nordmann
+
+Usage: {$argv[0]} [-t <type>] <xml-files>
+
+General options:
+
+-t / --type     Type of the schema to generate. Currently implemented schema 
+                languages: dtd, xsd, bonxai
+
+-h / --help     Display this help output
+
+XML Schema / BonXai specific options:
+
+-l / --locality Locality of the types when inferencing XML Schema schemata.
+                Valid values are integer numbers, or "n".
+
+-a / --attrComp Algorithm used to compare attributes in the type merger.
+                Available algorithms are "strict", "same", "equals", "merge".
+                Defaults to "equals".
+
+-p / --ptrnComp Algorithm used to compare patterns in the type merger. Available
+                algorithms are "exact", "reduce", "node-based", "subsumed" and
+                "node-subsumed". If not specified, no types will be merged.
+
+--snAttrComp    Attribute comparator used for elements with the same name.
+                Only need to be specified if it differs from the attrComp.
+
+--snPtrnComp    Pattern comparator used for elements with the same name. Only
+                need to be specified if it differs from the ptrnComp.
+
+EOHELP;
+    exit( 0 );
+}
+
+$attributeComparators = array(
+    'strict' => new slSchemaTypeStrictAttributeComparator(),
+    'same'   => new slSchemaTypeSameAttributeComparator(),
+    'equals' => new slSchemaTypeEqualAttributeComparator(),
+    'merge'  => new slSchemaTypeMergeAttributeComparator(),
+);
+
+$patternComparators = array(
+    'exact'         => new slSchemaTypeEqualPatternComparator(),
+    'reduce'        => new slSchemaTypeReducePatternComparator(),
+    'node-based'    => new slSchemaTypeNodeBasedPatternComparator(),
+    'subsumed'      => new slSchemaTypeSubsumingPatternComparator(),
+    'node-subsumed' => new slSchemaTypeNodeSubsumingPatternComparator(),
+);
+
+switch ( $options['type'] )
+{
+    case 'dtd':
+        $schema = new slDtdSchema();
+        $visitor = new slSchemaDtdVisitor();
+        break;
+
+    case 'bonxai':
+        $schema = new slBonxaiSchema();
+        $visitor = new slSchemaBonxaiVisitor();
+        break;
+
+    case 'xsd':
+        $schema = new slXsdSchema();
+        $visitor = new slSchemaXmlSchemaVisitor();
+        break;
+
+    default:
+        echo "Unknown schema type '{$options['type']}'.\n";
+        exit( 2 );
+}
+
+// Set type inferencer based on configuration options.
+if ( $options['locality'] === 'n' )
+{
+    $schema->setTypeInferencer( new slFullPathTypeInferencer() );
+}
+elseif ( is_numeric( $options['locality'] ) )
+{
+    $schema->setTypeInferencer( new slKLocalTypeInferencer( (int) $options['locality'] ) );
+}
+
+// Set type merger based on configuration options.
+if ( isset( $patternComparators[$options['ptrnComp']] ) )
+{
+    $typeMerger = new slConfigurableTypeMerger(
+        $patternComparators[$options['ptrnComp']],
+        $attributeComparators[$options['attrComp']]
+    );
+
+    if ( $options['snAttrComp'] !== null )
+    {
+        $typeMerger->setSameNameAttributeComparator( $attributeComparators[$options['snAttrComp']] );
+    }
+
+    if ( $options['snPtrnComp'] !== null )
+    {
+        $typeMerger->setSameNamePatternComparator( $patternComparators[$options['snPtrnComp']] );
+    }
+
+    $schema->setTypeMerger( $typeMerger );
+}
+
+// Learn from files
+$files = array_slice( $argv, 1 );
+foreach ( $files as $file )
+{
+    if ( !file_exists( $file ) )
+    {
+        continue;
+    }
+
+    $schema->learnFile( $file );
+}
+
+// Echo resulting schema
+echo $visitor->visit( $schema );
+
